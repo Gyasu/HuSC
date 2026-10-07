@@ -386,7 +386,11 @@ def load_datasets(configs):
 
     # Load transcript mutation probabilities and variant counts
     print('Loading transcript mutation probabilities and variant counts...')
-    enst_mp_counts = seq_utils.read_enst_mp_count_dist(configs['enst_mp_counts'])
+    # 'use_af_dist': false in the config reproduces the published HuSC scores,
+    # which used a constant allele frequency for the permutations (see README)
+    enst_mp_counts = seq_utils.read_enst_mp_count_dist(
+        configs['enst_mp_counts'], use_af_dist=configs.get('use_af_dist', True)
+    )
 
     return enst_cds_dict, enst_variants, uniprot_to_enst, enst_mp_counts
 
@@ -576,6 +580,9 @@ def main():
         try:
             codon_mis_probs = [x[1] for x in codon_mutation_rates]
             codon_syn_probs = [x[0] for x in codon_mutation_rates]
+            # The missense null draws MAFs from the *synonymous* spectrum (syn_dist), by design (confirmed):
+            # synonymous variation is the neutral proxy, consistent with the expected
+            # missense count, which is also predicted from the synonymous regression.
             mis_pmt_matrix = seq_utils.permute_variants_dist(
                 total_mis_exp, len(pep_seq), codon_mis_probs, syn_dist
             )

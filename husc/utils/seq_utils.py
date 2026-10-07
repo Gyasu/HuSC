@@ -405,7 +405,26 @@ def is_valid_cds(cds):
 
     return True
 
-def read_enst_mp_count_dist(input_file):
+LEGACY_AF_PERCENT = 0.0007  # constant MAF (in percent) used before the parsing fix
+
+
+def parse_af_list(field, default=LEGACY_AF_PERCENT):
+    """
+    Parse a comma-separated list of minor allele frequencies (in percent), e.g.
+    '0.000398,0.0037,"0.01"', into a list of floats.
+
+    Empty entries are skipped; a ValueError is raised for entries that are not
+    numbers. If the field contains no values, ``[default]`` is returned.
+    """
+    values = []
+    for x in field.split(','):
+        x = x.strip().strip('"').strip()
+        if x:
+            values.append(float(x))
+    return values or [default]
+
+
+def read_enst_mp_count_dist(input_file, use_af_dist=True):
     """
     Reads transcript-level mutation probabilities and variant counts from a disk
     file in which records are delimited by tabs.
@@ -421,6 +440,13 @@ def read_enst_mp_count_dist(input_file):
         A dictionary indexed by transcript IDs. Each indexed value is a tuple
         of length, syn_prob, syn_count, mis_prob, mis_count,
         syn_count_exp, mis_count_exp, syn_dist, mis_dist.
+        syn_dist and mis_dist are lists of the minor allele frequencies, in
+        percent, of the transcript's synonymous and missense gnomAD variants.
+    use_af_dist : bool
+        If False, ignore the frequency lists and use a constant 0.0007 percent
+        for every variant. This reproduces the behavior of earlier versions of
+        this function, which (because of a parsing bug) never read the lists,
+        and is only needed to regenerate previously published HuSC scores.
 
     """
     enst_mp_counts = {}
@@ -436,15 +462,18 @@ def read_enst_mp_count_dist(input_file):
             mis_prob = float(fields[4])
             mis_count = int(fields[5])
 
-            # Read syn_dist and mis_dist fields as lists of numbers
-            try:
-                # Process syn_dist and mis_dist by stripping quotes and skipping empty strings
-                syn_dist = [float(x.strip().strip('"')) for x in fields[6].split(',') if x.strip() and x.strip().strip('"').isdigit()] or [0.0007]
-                mis_dist = [float(x.strip().strip('"')) for x in fields[7].split(',') if x.strip() and x.strip().strip('"').isdigit()] or [0.0007]
-            except ValueError as e:
-                print(f'ValueError for {enst_id} in fields[6] or fields[7]: {fields[6]}, {fields[7]}')
-                print(f'Error message: {e}')
-                raise  # Re-raise the exception to stop the program
+            # Read syn_dist and mis_dist: comma-separated MAFs in percent
+            if use_af_dist:
+                try:
+                    syn_dist = parse_af_list(fields[6])
+                    mis_dist = parse_af_list(fields[7])
+                except ValueError as e:
+                    print(f'ValueError for {enst_id} in fields[6] or fields[7]: {fields[6]}, {fields[7]}')
+                    print(f'Error message: {e}')
+                    raise  # Re-raise the exception to stop the program
+            else:
+                syn_dist = [LEGACY_AF_PERCENT]
+                mis_dist = [LEGACY_AF_PERCENT]
 
             # mis_dist: Assign [1] if x is empty, otherwise convert to a list of integers
             # mis_dist = [int(x) for x in fields[7].split(',') if x] or [1]
@@ -464,3 +493,40 @@ def read_enst_mp_count_dist(input_file):
                 syn_dist, mis_dist
             )
     return enst_mp_counts
+
+def get_permutation_stats_multi(pmt_matrices, sites, n_obs):
+    """
+    Permutation statistics for a neighborhood that spans several proteins
+    (e.g. the subunits of a protein complex).
+
+    This mirrors the dict branch of ``get_permutation_stats`` (which is how
+    COSMIS' ``cosmis-complex`` script combines chains), but is keyed by an
+    explicit (matrix key, UniProt position) pair instead of Biopython residue
+    full IDs, so it also works when the structure's residue numbering has been
+    shifted relative to the UniProt sequence.
+
+    Parameters
+    ----------
+    pmt_matrices : dict
+        Maps a matrix key (chain ID, or UniProt ID if permutations are shared
+        between identical subunits) to an (n_permutations x protein_length)
+        array of permuted variant burdens.
+    sites : list of tuple
+        (matrix key, 1-based sequence position) for every residue in the
+        neighborhood, including the focal residue.
+    n_obs : float
+        Observed (MAF-weighted) missense or synonymous burden in the neighborhood.
+
+    Returns
+    -------
+    tuple
+        (permutation mean, permutation SD, empirical p-value)
+    """
+    pmt = 0
+    for key, pos in sites:
+        pmt = pmt + pmt_matrices[key][:, pos - 1]
+    pmt_mean = np.mean(pmt)
+    pmt_sd = np.std(pmt)
+    n = np.sum(pmt <= n_obs)
+    p_value = (n + 1) / (len(pmt) + 1)
+    return pmt_mean, pmt_sd, p_value

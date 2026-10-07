@@ -1,0 +1,5 @@
+# <complex_id> <structure_file (in pdb_dir)> <chain>:<uniprot>[:<offset>] ...
+# Offset = UniProt position minus the structure's residue number; inferred if omitted.
+# NOTE: pdbs/2PGH.cif is *horse* hemoglobin and will be rejected by the sequence check.
+# Replace with a human complex, e.g. human hemoglobin 2HHB (A,C alpha = P69905; B,D beta = P68871):
+2HHB 2HHB.cif A:P69905 B:P68871 C:P69905 D:P68871
