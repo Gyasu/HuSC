@@ -2,6 +2,9 @@ from husc.utils.genetic_code import GENETIC_CODE
 from husc.utils.trinucleotide_context_rates import MUTATION_RATES_UNIQUE
 import numpy as np
 
+# SNVs above this trinucleotide-context rate are CpG transitions (>=1.7e-7; all others <=3.2e-8)
+CPG_RATE = 1e-7
+
 def count_codon_ns(codon):
     """
     Count the respective number of possible missense and synonymous SNPs of the
@@ -59,7 +62,7 @@ def gc_content(seq):
     return gc_count / len(seq)
 
 
-def get_permutation_stats(pmt_matrix, cs_sites, n_obs):
+def get_permutation_stats(pmt_matrix, cs_sites, n_obs, midp=False):
     """
 
     Parameters
@@ -67,6 +70,8 @@ def get_permutation_stats(pmt_matrix, cs_sites, n_obs):
     pmt_matrix
     cs_sites : list
     n_obs : int
+    midp : bool
+        If True, permutations tied with n_obs count as half (mid-p value).
 
     Returns
     -------
@@ -83,10 +88,14 @@ def get_permutation_stats(pmt_matrix, cs_sites, n_obs):
             pmt += pmt_matrix[chain_id][:, res_index]
     pmt_mean = np.mean(pmt)
     pmt_sd = np.std(pmt)
-    n = np.sum(pmt <= n_obs)
-    p_value = (n + 1) / 10001
+    if midp:
+        n = np.sum(pmt < n_obs) + 0.5 * np.sum(pmt == n_obs)
+        p_value = (n + 0.5) / (len(pmt) + 1)
+    else:
+        n = np.sum(pmt <= n_obs)
+        p_value = (n + 1) / 10001
     return pmt_mean, pmt_sd, p_value
-    
+
 
 def get_permutation_stats_log(pmt_matrix, cs_sites, n_obs):
     """
@@ -186,27 +195,33 @@ def permute_variants_dist(m, length, p=None, dist=None, n=10000):
             'Peptide length did not match probability length {} != {}'.format(length, len(p))
         )
     
+    if dist is None or len(dist) == 0:
+        raise ValueError('Empty allele frequency distribution')
+
     # normalize p
     if p is not None:
+        p = np.asarray(p, dtype=float)
         p = p / np.sum(p)
-    missense_matrix = []
-    for _ in range(n):
-        v = np.zeros(length)
-        m_sites = np.random.choice(range(length), m, replace=True, p=p)
-        for s in m_sites:
-            MAF = np.random.choice(dist)
-            #Convert MAF to fraction
-            MAF = MAF / 100
 
-            if MAF > 0.5:
-                result = 1 - MAF
-            else:
-                result = MAF            
+    # Convert MAF from percent to fraction and fold to the minor allele
+    def to_maf(d):
+        d = np.asarray(d, dtype=float) / 100
+        return np.where(d > 0.5, 1 - d, d)
+    maf = to_maf(dist)
+    is_cpg = None
+    if dist_cpg is not None and len(dist_cpg):
+        is_cpg = np.asarray(cpg_mask, bool) if cpg_mask is not None else np.asarray(snv_rates) > CPG_RATE
+    if is_cpg is not None:
+        maf_cpg = to_maf(dist_cpg)
 
-            v[s] += result
-
-        missense_matrix.append(v)
-    return np.stack(missense_matrix)
+    # Each permutation places m variants on sites drawn by p, and each variant
+    # gets an independent MAF drawn from dist
+    m = int(m)
+    m_sites = np.random.choice(length, size=(n, m), replace=True, p=p)
+    m_mafs = maf[np.random.randint(len(maf), size=(n, m))]
+    flat_index = (np.arange(n)[:, None] * length + m_sites).ravel()
+    missense_matrix = np.bincount(flat_index, weights=m_mafs.ravel(), minlength=n * length)
+    return missense_matrix.reshape(n, length)
 
 def count_poss_ns_variants(cds):
     """
@@ -353,6 +368,200 @@ def get_codon_mutation_rates(cds):
     return mutation_rates
 
 
+def get_snv_mutation_rates(cds):
+    """
+    List every possible single-nucleotide variant of the CDS with its codon and
+    trinucleotide-context mutation rate, split into synonymous and missense.
+    Mirrors get_codon_mutation_rates (same nucleotides considered for the first
+    and last codons), so per-codon sums of these rates equal its output.
+
+    Parameters
+    ----------
+    cds : str
+        Coding sequence without the stop codon.
+
+    Returns
+    -------
+    dict
+        {'syn': (codon_indices, rates), 'mis': (codon_indices, rates)} with
+        zero-based codon indices and rates as numpy arrays.
+    """
+    if len(cds) % 3 != 0:
+        raise ValueError('Given CDS length is not a multiple of 3.')
+
+    num_codons = len(cds) // 3
+    snvs = {'syn': ([], []), 'mis': ([], [])}
+    for codon_number in range(1, num_codons + 1):
+        codon_sequence = cds[(codon_number - 1) * 3:codon_number * 3]
+        if codon_number == 1:
+            sequence_context = cds[:4]
+            positions = [(i, sequence_context[i - 1:i + 2]) for i in range(1, 3)]
+        elif codon_number == num_codons:
+            sequence_context = cds[-4:]
+            positions = [(i, sequence_context[i:i + 3]) for i in range(0, 2)]
+        else:
+            sequence_context = cds[(codon_number - 1) * 3 - 1:(codon_number - 1) * 3 + 4]
+            positions = [(i, sequence_context[i:i + 3]) for i in range(3)]
+
+        for i, trinucleotide in positions:
+            for k, v in MUTATION_RATES_UNIQUE[trinucleotide].items():
+                mutant_sequence = codon_sequence[:i] + k[1] + codon_sequence[i + 1:]
+                if GENETIC_CODE[codon_sequence] == GENETIC_CODE[mutant_sequence]:
+                    kind = 'syn'
+                elif GENETIC_CODE[mutant_sequence] != 'STOP':
+                    kind = 'mis'
+                else:
+                    continue
+                snvs[kind][0].append(codon_number - 1)
+                snvs[kind][1].append(v)
+    return {k: (np.array(idx, dtype=int), np.array(r, dtype=float)) for k, (idx, r) in snvs.items()}
+
+
+def saturating_snv_probs(rates, expected_total):
+    """
+    Probability that each possible SNV is observed, p = 1 - exp(-beta * rate),
+    with beta chosen so that the probabilities sum to expected_total. Unlike a
+    linear model, highly mutable SNVs saturate at 1 and each SNV is observed at
+    most once.
+    """
+    rates = np.asarray(rates, dtype=float)
+    if expected_total <= 0 or rates.sum() == 0:
+        return np.zeros_like(rates)
+    if expected_total >= np.count_nonzero(rates):
+        return (rates > 0).astype(float)
+
+    def total(beta):
+        return np.sum(-np.expm1(-beta * rates))
+
+    lo, hi = 0.0, expected_total / rates.sum()
+    while total(hi) < expected_total:
+        hi *= 2
+    for _ in range(100):
+        mid = (lo + hi) / 2
+        if total(mid) < expected_total:
+            lo = mid
+        else:
+            hi = mid
+    return -np.expm1(-hi * rates)
+
+
+def permute_variants_saturating(snv_codons, snv_rates, length, expected_total, dist, n=10000, chunk=1000,
+                                 dist_cpg=None, cpg_mask=None):
+    """
+    Saturating permutation null: in each permutation every possible SNV is
+    observed independently with probability saturating_snv_probs(...), and each
+    observed SNV gets a MAF drawn from dist (in percent). If dist_cpg is given,
+    CpG SNVs (rate > CPG_RATE) draw their MAF from dist_cpg instead, since
+    recurrent mutation gives them higher allele frequencies; cpg_mask overrides
+    which SNVs count as CpG (needed when rates were rescaled). Returns an
+    (n, length) matrix of per-codon MAF sums, like permute_variants_dist.
+    """
+    if dist is None or len(dist) == 0:
+        raise ValueError('Empty allele frequency distribution')
+    if len(snv_codons) and snv_codons.max() >= length:
+        raise ValueError('SNV codon index exceeds peptide length {}'.format(length))
+
+    # Convert MAF from percent to fraction and fold to the minor allele
+    def to_maf(d):
+        d = np.asarray(d, dtype=float) / 100
+        return np.where(d > 0.5, 1 - d, d)
+    maf = to_maf(dist)
+    is_cpg = None
+    if dist_cpg is not None and len(dist_cpg):
+        is_cpg = np.asarray(cpg_mask, bool) if cpg_mask is not None else np.asarray(snv_rates) > CPG_RATE
+    if is_cpg is not None:
+        maf_cpg = to_maf(dist_cpg)
+
+    p = saturating_snv_probs(snv_rates, expected_total)
+    out = np.empty((n, length))
+    for start in range(0, n, chunk):
+        c = min(chunk, n - start)
+        hits = np.random.random_sample((c, len(p))) < p
+        rows, cols = np.nonzero(hits)
+        mafs = maf[np.random.randint(len(maf), size=len(rows))]
+        if is_cpg is not None:
+            cpg_hits = is_cpg[cols]
+            mafs[cpg_hits] = maf_cpg[np.random.randint(len(maf_cpg), size=cpg_hits.sum())]
+        flat_index = rows * length + snv_codons[cols]
+        out[start:start + c] = np.bincount(
+            flat_index, weights=mafs, minlength=c * length
+        ).reshape(c, length)
+    return out
+
+
+def local_cpg_oe(cds, half_window=100):
+    """
+    CpG observed/expected ratio, CpG * L / (C * G), in a window of +-half_window
+    nucleotides of CDS around each codon. High values mark CpG-island-like
+    sequence, where CpGs are mostly unmethylated and mutate more slowly.
+    """
+    seq = str(cds).upper()
+    n = len(seq) // 3
+    cg = np.zeros(len(seq))
+    cg[:-1] = [seq[i:i + 2] == 'CG' for i in range(len(seq) - 1)]
+    cum = lambda a: np.concatenate([[0], np.cumsum(a)])
+    CG = cum(cg)
+    C = cum([ch == 'C' for ch in seq])
+    G = cum([ch == 'G' for ch in seq])
+    a = np.maximum(0, 3 * np.arange(n) - half_window)
+    b = np.minimum(len(seq), 3 * np.arange(n) + 3 + half_window)
+    return (CG[b] - CG[a]) * (b - a) / np.maximum((C[b] - C[a]) * (G[b] - G[a]), 1)
+
+
+def scale_cpg_rates(snv_codons, snv_rates, cds, cpg_scale):
+    """
+    Multiply CpG SNV rates (rate > CPG_RATE) by a factor that depends on the
+    local CpG o/e of their codon (methylation proxy). cpg_scale is a dict with
+    bin 'edges' (len B+1) and 'factors' (len B). Returns (scaled rates, CpG mask).
+    """
+    rates = np.asarray(snv_rates, dtype=float)
+    is_cpg = rates > CPG_RATE
+    oe = local_cpg_oe(cds)[snv_codons]
+    edges, factors = np.asarray(cpg_scale['edges']), np.asarray(cpg_scale['factors'])
+    b = np.clip(np.searchsorted(edges, oe, side='right') - 1, 0, len(factors) - 1)
+    return np.where(is_cpg, rates * factors[b], rates), is_cpg
+
+
+def syn_maf_by_cpg_class(variants, cds):
+    """
+    Split a transcript's observed synonymous MAFs (in percent) by codon class.
+    A codon is CpG if every possible synonymous SNV in it has rate > CPG_RATE,
+    non-CpG if none has; synonymous variants at mixed codons are ambiguous
+    (the protein-level variant string does not say which base changed) and dropped.
+
+    Parameters
+    ----------
+    variants : list
+        [(variant_string, allele_count, allele_number), ...] as in the gnomAD JSON.
+    cds : str
+        Coding sequence without the stop codon.
+
+    Returns
+    -------
+    tuple of (list, list)
+        (non-CpG MAFs, CpG MAFs), in percent like the AF lists of the expected-count file.
+    """
+    codons, rates = get_snv_mutation_rates(cds)['syn']
+    lo = np.full(len(cds) // 3, np.inf)
+    hi = np.zeros(len(cds) // 3)
+    np.minimum.at(lo, codons, rates)
+    np.maximum.at(hi, codons, rates)
+    non_cpg, cpg = [], []
+    for variant_str, allele_count, allele_number in variants:
+        if variant_str[0] != variant_str[-1] or int(allele_number) == 0:
+            continue
+        c = int(variant_str[1:-1]) - 1
+        if c >= len(hi) or hi[c] == 0:
+            continue
+        maf = int(allele_count) / int(allele_number)
+        maf = min(maf, 1 - maf) * 100
+        if lo[c] > CPG_RATE:
+            cpg.append(maf)
+        elif hi[c] <= CPG_RATE:
+            non_cpg.append(maf)
+    return non_cpg, cpg
+
+
 def get_transcript_mutation_prob(transcript_cds):
     """
 
@@ -436,11 +645,12 @@ def read_enst_mp_count_dist(input_file):
             mis_prob = float(fields[4])
             mis_count = int(fields[5])
 
-            # Read syn_dist and mis_dist fields as lists of numbers
+            # Read syn_dist and mis_dist fields as lists of allele frequencies (in percent).
+            # Empty lists are kept empty; transcripts without a distribution are skipped downstream.
             try:
                 # Process syn_dist and mis_dist by stripping quotes and skipping empty strings
-                syn_dist = [float(x.strip().strip('"')) for x in fields[6].split(',') if x.strip() and x.strip().strip('"').isdigit()] or [0.0007]
-                mis_dist = [float(x.strip().strip('"')) for x in fields[7].split(',') if x.strip() and x.strip().strip('"').isdigit()] or [0.0007]
+                syn_dist = [float(x.strip().strip('"')) for x in fields[6].split(',') if x.strip().strip('"')]
+                mis_dist = [float(x.strip().strip('"')) for x in fields[7].split(',') if x.strip().strip('"')]
             except ValueError as e:
                 print(f'ValueError for {enst_id} in fields[6] or fields[7]: {fields[6]}, {fields[7]}')
                 print(f'Error message: {e}')

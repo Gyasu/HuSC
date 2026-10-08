@@ -19,6 +19,7 @@ import logging
 import warnings
 from argparse import ArgumentParser
 from collections import defaultdict
+from statistics import NormalDist
 from tqdm import tqdm
 import numpy as np
 
@@ -73,7 +74,40 @@ def parse_cmd():
         '-l', '--log', dest='log', default='husc.log',
         help='Log file path for detailed computation logs (default: husc.log)'
     )
-    
+    parser.add_argument(
+        '--score', dest='score', choices=['z', 'probit'], default='z',
+        help='HuSC from (obs - mean) / sd of the permutation null ("z", default) or from the '
+             'inverse normal of the permutation p-value ("probit")'
+    )
+    parser.add_argument(
+        '--midp', dest='midp', action='store_true',
+        help='Use mid-p permutation p-values (ties with the observed value count as half)'
+    )
+    parser.add_argument(
+        '--calibrate', dest='calibrate', action='store_true',
+        help="Scale expected variant counts by the transcript's synonymous observed/expected ratio"
+    )
+    parser.add_argument(
+        '--calib-k', dest='calib_k', type=float, default=50.0,
+        help='Pseudo-count shrinking the synonymous o/e calibration toward 1 (default: 50)'
+    )
+    parser.add_argument(
+        '--null', dest='null', choices=['multinomial', 'saturating'], default='multinomial',
+        help='Permutation null: place the expected number of variants on codons with replacement '
+             '("multinomial", default), or observe each possible SNV at most once with probability '
+             '1 - exp(-beta * rate) ("saturating")'
+    )
+    parser.add_argument(
+        '--maf-by-cpg', dest='maf_by_cpg', metavar='CPG_MAF_FILE', default=None,
+        help='Saturating null only: CpG SNVs draw MAFs from this pooled list of CpG-codon synonymous MAFs '
+             '(percent, one per line); other SNVs draw from the transcript\'s non-CpG synonymous MAFs'
+    )
+    parser.add_argument(
+        '--cpg-scale', dest='cpg_scale', metavar='JSON', default=None,
+        help='Saturating null only: scale CpG SNV rates by a factor of local CpG o/e '
+             '(JSON with bin "edges" and "factors"), a proxy for unmethylated CpG islands'
+    )
+
     return parser.parse_args()
 
 
@@ -462,7 +496,21 @@ def main():
 
     # Load all required datasets
     cds_dict, variant_dict, uniprot_to_enst, enst_mp_counts = load_datasets(configs)
-    
+
+    cpg_maf_dist = None
+    if args.maf_by_cpg:
+        if args.null != 'saturating':
+            raise SystemExit('--maf-by-cpg requires --null saturating')
+        cpg_maf_dist = np.loadtxt(args.maf_by_cpg, ndmin=1)
+        logging.info(f"Loaded {len(cpg_maf_dist)} pooled CpG synonymous MAFs from {args.maf_by_cpg}")
+    cpg_scale = None
+    if args.cpg_scale:
+        if args.null != 'saturating':
+            raise SystemExit('--cpg-scale requires --null saturating')
+        with open(args.cpg_scale) as handle:
+            cpg_scale = json.load(handle)
+        logging.info(f"CpG rate scaling by local CpG o/e: {cpg_scale}")
+
     # Load UniProt-PDB pairs from input file
     with open(args.input, 'rt') as mapping_file:
         uniprot_pdb_pairs = [line.strip().split() for line in mapping_file]
@@ -474,6 +522,7 @@ def main():
         "no_variant_data": 0,
         "bad_structure": 0,
         "no_enst_mp": 0,
+        "empty_af_dist": 0,
     }
 
     # Process each UniProt-PDB pair
@@ -571,17 +620,53 @@ def main():
             logging.error(f"Missing mutation probability data for {right_enst}")
             error_counts["no_enst_mp"] += 1
             continue
-        
+
+        if not syn_dist:
+            logging.error(f"Empty synonymous allele frequency distribution for {right_enst}. Skipping.")
+            error_counts["empty_af_dist"] += 1
+            continue
+
+        # Correct transcript-level miscalibration of the expected counts using the
+        # synonymous observed/expected ratio, shrunk toward 1 for transcripts with few variants
+        if args.calibrate:
+            syn_count = enst_mp_counts[right_enst][2]
+            calib_factor = (syn_count + args.calib_k) / (total_syn_exp + args.calib_k)
+            total_mis_exp = int(round(total_mis_exp * calib_factor))
+            total_syn_exp = int(round(total_syn_exp * calib_factor))
+
+        # Recurrent mutation gives CpG variants higher allele frequencies, so draw
+        # MAFs for CpG and non-CpG SNVs from separate synonymous lists
+        maf_dist, maf_dist_cpg = syn_dist, None
+        if cpg_maf_dist is not None:
+            non_cpg_dist, _ = seq_utils.syn_maf_by_cpg_class(variants, cds)
+            if non_cpg_dist:
+                maf_dist = non_cpg_dist
+            maf_dist_cpg = cpg_maf_dist
+
         # Generate permutation distributions for statistical testing
         try:
-            codon_mis_probs = [x[1] for x in codon_mutation_rates]
-            codon_syn_probs = [x[0] for x in codon_mutation_rates]
-            mis_pmt_matrix = seq_utils.permute_variants_dist(
-                total_mis_exp, len(pep_seq), codon_mis_probs, syn_dist
-            )
-            syn_pmt_matrix = seq_utils.permute_variants_dist(
-                total_syn_exp, len(pep_seq), codon_syn_probs, syn_dist
-            )
+            if args.null == 'saturating':
+                snv_rates = seq_utils.get_snv_mutation_rates(cds)
+                pmt = {}
+                for kind, total_exp in (('mis', total_mis_exp), ('syn', total_syn_exp)):
+                    codons, rates = snv_rates[kind]
+                    cpg_mask = None
+                    if cpg_scale is not None:
+                        rates, cpg_mask = seq_utils.scale_cpg_rates(codons, rates, cds, cpg_scale)
+                    pmt[kind] = seq_utils.permute_variants_saturating(
+                        codons, rates, len(pep_seq), total_exp, maf_dist,
+                        dist_cpg=maf_dist_cpg, cpg_mask=cpg_mask
+                    )
+                mis_pmt_matrix, syn_pmt_matrix = pmt['mis'], pmt['syn']
+            else:
+                codon_mis_probs = [x[1] for x in codon_mutation_rates]
+                codon_syn_probs = [x[0] for x in codon_mutation_rates]
+                mis_pmt_matrix = seq_utils.permute_variants_dist(
+                    total_mis_exp, len(pep_seq), codon_mis_probs, syn_dist
+                )
+                syn_pmt_matrix = seq_utils.permute_variants_dist(
+                    total_syn_exp, len(pep_seq), codon_syn_probs, syn_dist
+                )
         except ValueError:
             logging.error(f'Protein length mismatch during permutation for {uniprot_id}')
             continue
@@ -663,16 +748,21 @@ def main():
 
             # Perform permutation test for missense variants
             mis_pmt_mean, mis_pmt_sd, mis_p_value = seq_utils.get_permutation_stats(
-                mis_pmt_matrix, contacts_pdb_pos + [seq_pos], total_missense_obs
+                mis_pmt_matrix, contacts_pdb_pos + [seq_pos], total_missense_obs, midp=args.midp
             )
-            
+
             # Perform permutation test for synonymous variants
             syn_pmt_mean, syn_pmt_sd, syn_p_value = seq_utils.get_permutation_stats(
-                syn_pmt_matrix, contacts_pdb_pos + [seq_pos], total_synonymous_obs
+                syn_pmt_matrix, contacts_pdb_pos + [seq_pos], total_synonymous_obs, midp=args.midp
             )
 
             # Calculate HuSC score
-            z_score = (total_missense_obs - mis_pmt_mean) / mis_pmt_sd
+            if args.score == 'probit':
+                # percentile of the observed value within the null, on a normal scale;
+                # robust to the heavy right tail contributed by common variants
+                z_score = NormalDist().inv_cdf(min(max(mis_p_value, 1e-12), 1 - 1e-12))
+            else:
+                z_score = (total_missense_obs - mis_pmt_mean) / mis_pmt_sd
             husc = np.sign(z_score) * np.log10(np.abs(z_score) + 1)
 
             # Append results for this residue
@@ -695,8 +785,8 @@ def main():
                     mis_pmt_sd,
                     '{:.3f}'.format(husc),  
                     '{:.3e}'.format(mis_p_value),
-                    '{:.3f}'.format(syn_pmt_mean),
-                    '{:.3f}'.format(syn_pmt_sd),
+                    '{:.3e}'.format(syn_pmt_mean),
+                    '{:.3e}'.format(syn_pmt_sd),
                     '{:.3e}'.format(syn_p_value),
                     enst_mp_counts[right_enst][2],
                     enst_mp_counts[right_enst][4],
