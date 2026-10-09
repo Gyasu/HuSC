@@ -71,17 +71,19 @@ GitHub cannot store the large input files, so they are archived on Zenodo:
 
 | file | size | contents | source |
 |---|---|---|---|
-| `gnomad_variant_counts_hg38.json.gz` | | gnomAD coding variants per Ensembl transcript: `[protein change, allele count, allele number]` | gnomAD |
+| `gnomad_variant_counts_hg38.json.gz` | | gnomAD v2.1.1 coding SNVs per Ensembl transcript: `[protein change, allele count, allele number]` | [COSMIS](https://github.com/CapraLab/cosmis) |
 | `gnomad_prob_AFdist_exp.tsv.gz` | | per-transcript mutability, observed and expected variant counts, allele frequency lists | built by `husc.build_transcript_table` |
 | `Homo_sapiens.GRCh38.cds.all.fa.gz` | 22 MB | Ensembl GRCh38 coding sequences | Ensembl |
 | `UP000005640_9606.fasta.gz` | 8 MB | UniProt human reference proteome | UniProt |
 | `HuSC_8_scores.tar.gz` | | precomputed HuSC scores for the human proteome (8 Å) | this pipeline |
 
+**Variant data provenance.** The variants file comes from [COSMIS](https://github.com/CapraLab/cosmis) (Li et al. 2022). It holds per-transcript variant counts from gnomAD v2.1.1 (141,456 individuals), lifted over to GRCh38. Sites without a PASS filter flag were removed with vcftools, and only single-nucleotide variants were kept.
+
 Shipped in this repository (`resources/`):
 
 | file | contents |
 |---|---|
-| `uniprot_to_enst_mapping.json` | UniProt accession → Ensembl transcript IDs |
+| `uniprot_to_enst_mapping.json` | UniProt accession → Ensembl transcript IDs (UniProt ID Mapping service) |
 | `enst_ids.txt` | transcript list used to build the transcript table |
 | `cpg_syn_maf.txt` | pooled synonymous MAFs at CpG codons (built by `husc.prepare_cpg`) |
 | `cpg_scale.json` | CpG mutation-rate factors by local CpG o/e, with a held-out fit report (built by `husc.prepare_cpg`) |
