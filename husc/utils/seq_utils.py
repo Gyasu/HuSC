@@ -313,7 +313,7 @@ def get_codon_mutation_rates(cds):
                         if GENETIC_CODE[codon_sequence] == GENETIC_CODE[mutant_sequence]:
                             synonymous_rate += v
                         elif GENETIC_CODE[codon_sequence] != GENETIC_CODE[mutant_sequence] \
-                            and GENETIC_CODE[mutant_sequence] != 'STOP':
+                            and GENETIC_CODE[mutant_sequence] != '*':
                             nonsynonymous_rate += v
             # last codon
             else:
@@ -327,7 +327,7 @@ def get_codon_mutation_rates(cds):
                         if GENETIC_CODE[codon_sequence] == GENETIC_CODE[mutant_sequence]:
                             synonymous_rate += v
                         elif GENETIC_CODE[codon_sequence] != GENETIC_CODE[mutant_sequence] \
-                            and GENETIC_CODE[mutant_sequence] != 'STOP':
+                            and GENETIC_CODE[mutant_sequence] != '*':
                             nonsynonymous_rate += v
 
         # codons other than the first and the last
@@ -346,7 +346,7 @@ def get_codon_mutation_rates(cds):
                     if GENETIC_CODE[codon_sequence] == GENETIC_CODE[mutant_sequence]:
                         synonymous_rate += v
                     elif GENETIC_CODE[codon_sequence] != GENETIC_CODE[mutant_sequence] \
-                        and GENETIC_CODE[mutant_sequence] != 'STOP':
+                        and GENETIC_CODE[mutant_sequence] != '*':
                         nonsynonymous_rate += v
 
         mutation_rates.append((synonymous_rate, nonsynonymous_rate))
