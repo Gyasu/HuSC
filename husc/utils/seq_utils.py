@@ -59,68 +59,10 @@ def gc_content(seq):
     return gc_count / len(seq)
 
 
-def get_permutation_stats(pmt_matrix, cs_sites, n_obs):
-    """
-
-    Parameters
-    ----------
-    pmt_matrix
-    cs_sites : list
-    n_obs : int
-
-    Returns
-    -------
-
-    """
-    if not isinstance(pmt_matrix, dict):
-        contact_res_indices = [pos - 1 for pos in cs_sites]
-        pmt = pmt_matrix[:, contact_res_indices].sum(axis=1)
-    else:
-        pmt = 0
-        for res in cs_sites:
-            chain_id = res.get_full_id()[2]
-            res_index = res.get_full_id()[3][1] - 1
-            pmt += pmt_matrix[chain_id][:, res_index]
-    pmt_mean = np.mean(pmt)
-    pmt_sd = np.std(pmt)
-    n = np.sum(pmt <= n_obs)
-    p_value = (n + 1) / 10001
-    return pmt_mean, pmt_sd, p_value
-    
-
-def get_permutation_stats_log(pmt_matrix, cs_sites, n_obs):
-    """
-
-    Parameters
-    ----------
-    pmt_matrix
-    cs_sites : list
-    n_obs : int
-
-    Returns
-    -------
-
-    """
-    if not isinstance(pmt_matrix, dict):
-        contact_res_indices = [pos - 1 for pos in cs_sites]
-        pmt = pmt_matrix[:, contact_res_indices].sum(axis=1)
-    else:
-        pmt = 0
-        for res in cs_sites:
-            chain_id = res.get_full_id()[2]
-            res_index = res.get_full_id()[3][1] - 1
-            pmt += pmt_matrix[chain_id][:, res_index]
-    
-    pmt_log = np.log10(pmt + 1)
-    pmt_mean = np.mean(pmt_log)
-    pmt_sd = np.std(pmt_log)
-    n = np.sum(pmt_log <= n_obs)
-    p_value = (n + 1) / 10001
-    return pmt_mean, pmt_sd, p_value
-
-
 def get_codon_seq_context(codon_nums, cds):
     """
+    Nucleotide context of the given codons: each codon plus one flanking
+    nucleotide on each side, concatenated.
 
     Parameters
     ----------
@@ -139,14 +81,10 @@ def get_codon_seq_context(codon_nums, cds):
     total_num_codons = len(cds) // 3
     if isinstance(codon_nums, int):
         if codon_nums > total_num_codons:
-            print('The given coding sequence has %s codons:' % total_num_codons)
-            print(cds)
             raise IndexError('Codon number %s out of range.' % codon_nums)
     else:
         for i in codon_nums:
             if i > total_num_codons:
-                print('The given coding sequence has %s codons:' % total_num_codons)
-                print(cds)
                 raise IndexError('Codon number %s out of range.' % i)
 
     # if only given a single codon number
@@ -164,49 +102,6 @@ def get_codon_seq_context(codon_nums, cds):
         for i in codon_nums:
             codon_seq_context += cds[((i - 1) * 3 - 1):(i * 3) + 1]
         return codon_seq_context
-
-def permute_variants_dist(m, length, p=None, dist=None, n=10000):
-    """
-    To be added ...
-
-    Parameters
-    ----------
-    m
-    length
-    p
-    n
-
-    Returns
-    -------
-
-    """
-    if not (p is None) and length != len(p):
-
-        raise ValueError(
-            'Peptide length did not match probability length {} != {}'.format(length, len(p))
-        )
-    
-    # normalize p
-    if p is not None:
-        p = p / np.sum(p)
-    missense_matrix = []
-    for _ in range(n):
-        v = np.zeros(length)
-        m_sites = np.random.choice(range(length), m, replace=True, p=p)
-        for s in m_sites:
-            MAF = np.random.choice(dist)
-            #Convert MAF to fraction
-            MAF = MAF / 100
-
-            if MAF > 0.5:
-                result = 1 - MAF
-            else:
-                result = MAF            
-
-            v[s] += result
-
-        missense_matrix.append(v)
-    return np.stack(missense_matrix)
 
 def count_poss_ns_variants(cds):
     """
@@ -272,6 +167,9 @@ def count_ns_sites(cds):
 
 def get_codon_mutation_rates(cds):
     """
+    Summed trinucleotide-context mutation rates of the synonymous and the
+    missense SNVs of each codon (stop-gains excluded). For the first and last
+    codons only the two nucleotides with a full context inside the CDS are used.
 
     Parameters
     ----------
@@ -353,35 +251,16 @@ def get_codon_mutation_rates(cds):
     return mutation_rates
 
 
-def get_transcript_mutation_prob(transcript_cds):
-    """
-
-    Parameters
-    ----------
-    transcript_cds
-
-    Returns
-    -------
-
-    """
-    codon_mutation_prob = get_codon_mutation_rates(transcript_cds)
-    syn_prob = 0
-    mis_prob = 0
-    for probs in codon_mutation_prob:
-        syn_prob += probs[0]
-        mis_prob += probs[1]
-    return syn_prob, mis_prob
-
 def is_valid_cds(cds):
     """
     Determines whether a given sequence is a valid transcript sequence or not.
     A valid transcript sequence is defined as one that starts with ATG, ends
-    with a stop codon, that whose length is a multiple of three.
+    with a stop codon, and whose length is a multiple of three.
 
     Parameters
     ----------
-    seq_record : SeqRecord
-        An object of type SeqRecord.
+    cds : str
+        Coding sequence including the stop codon.
 
     Returns
     -------
@@ -394,73 +273,10 @@ def is_valid_cds(cds):
 
     # the following conditionals skip noncanonical transcripts
     if not cds[:3] == 'ATG':
-        print('The given CDS does not start with ATG.')
         return False
     if cds[-3:] not in stop_codons:
-        print('The given CDS does not have a stop codon.')
         return False
     if len(cds) % 3 != 0:
-        print('The length of the given CDS is not a multiple of 3.')
         return False
 
     return True
-
-def read_enst_mp_count_dist(input_file):
-    """
-    Reads transcript-level mutation probabilities and variant counts from a disk
-    file in which records are delimited by tabs.
-
-    Parameters
-    ----------
-    input_file : str
-        File containing transcript-level mutation probabilities and variant counts.
-
-    Returns
-    -------
-    dict
-        A dictionary indexed by transcript IDs. Each indexed value is a tuple
-        of length, syn_prob, syn_count, mis_prob, mis_count,
-        syn_count_exp, mis_count_exp, syn_dist, mis_dist.
-
-    """
-    enst_mp_counts = {}
-    with open(input_file, 'rt') as ipf:
-        for line in ipf:
-            if not line.startswith('ENST'):
-                continue
-            fields = line.strip().split('\t')
-            enst_id = fields[0]
-            length = int(fields[1])
-            syn_prob = float(fields[2])
-            syn_count = int(fields[3])
-            mis_prob = float(fields[4])
-            mis_count = int(fields[5])
-
-            # Read syn_dist and mis_dist fields as lists of numbers
-            try:
-                # Process syn_dist and mis_dist by stripping quotes and skipping empty strings
-                syn_dist = [float(x.strip().strip('"')) for x in fields[6].split(',') if x.strip() and x.strip().strip('"').isdigit()] or [0.0007]
-                mis_dist = [float(x.strip().strip('"')) for x in fields[7].split(',') if x.strip() and x.strip().strip('"').isdigit()] or [0.0007]
-            except ValueError as e:
-                print(f'ValueError for {enst_id} in fields[6] or fields[7]: {fields[6]}, {fields[7]}')
-                print(f'Error message: {e}')
-                raise  # Re-raise the exception to stop the program
-
-            # mis_dist: Assign [1] if x is empty, otherwise convert to a list of integers
-            # mis_dist = [int(x) for x in fields[7].split(',') if x] or [1]
-            # mis_dist = [int(x.strip('"')) for x in fields[9].split(',') if x.strip('"').isdigit()]
-
-            # expected synonymous count predicted using a model fitted by
-            # by regressing synonymous count to synonymous probability
-            syn_count_exp = round(float(fields[8]))
-
-            # expected missense count predicted using a model fitted by
-            # by regressing missense count to missense probability
-            mis_count_exp = round(float(fields[9]))
-
-            enst_mp_counts[enst_id] = (
-                length, syn_prob, syn_count,
-                mis_prob, mis_count, syn_count_exp, mis_count_exp,
-                syn_dist, mis_dist
-            )
-    return enst_mp_counts

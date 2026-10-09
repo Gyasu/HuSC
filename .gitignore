@@ -17,3 +17,7 @@ helper_scripts/context_clinvar_with_HSCZ.csv
 helper_scripts/context_clinvar_with_HSCZ2.csv
 helper_scripts/all_conservation_scores_with_CS_8.csv
 helper_scripts/all_conservation_scores_with_HSCZ_8.csv
+__pycache__/
+structures/
+*.log
+*.egg-info/

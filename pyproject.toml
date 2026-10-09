@@ -18,16 +18,23 @@ license = {file = "LICENSE"}
 classifiers = ["License :: OSI Approved :: MIT License"]
 dynamic = ["version", "description"]
 dependencies = [
-    "pytest",
 	"numpy",
-	"scikit-learn",
+	"biopython",
+	"ijson",
+	"tqdm",
+]
+
+[project.optional-dependencies]
+# helper scripts and figure notebooks
+analysis = [
 	"pandas",
+	"scikit-learn",
+	"scipy",
 	"matplotlib",
 	"plotly",
-	"biopython",  
-	"tqdm",
-	"statsmodels"        
+	"statsmodels",
 ]
+test = ["pytest"]
 
 [project.urls]
 Home = "https://github.com/gyasu/HuSC.git"
