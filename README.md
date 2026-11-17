@@ -205,5 +205,6 @@ husc/
 └── utils/                     # sequence, structure and mutation-rate helpers
 resources/                     # small inputs shipped with the code
 inputs/                        # example and proteome input lists
+analysis/                      # scripts that build the derived tables used by the figure notebooks
 figures/, esm_finetuning/      # notebooks for the paper's figures and the ESM2 fine-tuning
 ```
