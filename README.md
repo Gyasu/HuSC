@@ -6,7 +6,7 @@ We use HuSC to fine-tune protein language models (PLMs), improving their ability
 
 > **Associated publication:** Bajracharya G. and Capra J.A. "Fine-tuning protein language models on human spatial constraint improves variant effect prediction by reducing wild-type sequence bias." *bioRxiv* (2026).
 
-**Just want the scores?** Precomputed HuSC scores for the human proteome are available on Dryad (see [Data](#data)); you don't need to run the pipeline.
+**Just want the scores?** Precomputed HuSC scores for the human proteome (`HuSC_8_2026-10.tar.gz`) are available on Dryad (see [Data](#data)); you don't need to run the pipeline.
 
 ---
 
@@ -35,7 +35,7 @@ pip install -e .
 
 This scores three proteins (TP53, BRCA1, PTEN) in about a minute, plus download time.
 
-**1. Download the data files** from Dryad (see [Data](#data)) into `datafiles/`:
+**1. Download the data files** into `datafiles/`: the two gnomAD tables from Dryad, the Ensembl coding sequences from [Ensembl](https://ftp.ensembl.org/pub/current_fasta/homo_sapiens/cds/) and the UniProt human reference proteome from [UniProt](https://www.uniprot.org/proteomes/UP000005640) (see [Data](#data)):
 
 ```
 datafiles/
@@ -69,13 +69,22 @@ GitHub cannot store the large input files, so they are archived on Dryad togethe
 
 > **Dryad:** https://doi.org/10.5061/dryad.1vhhmgr88
 
-| file | size | contents | source |
+Pipeline inputs:
+
+| file | size | contents | where |
 |---|---|---|---|
-| `gnomad_variant_counts_hg38.json.gz` | | gnomAD v2.1.1 coding SNVs per Ensembl transcript: `[protein change, allele count, allele number]` | [COSMIS](https://github.com/CapraLab/cosmis) |
-| `gnomad_prob_AFdist_exp.tsv.gz` | | per-transcript mutability, observed and expected variant counts, allele frequency lists | built by `husc.build_transcript_table` |
-| `Homo_sapiens.GRCh38.cds.all.fa.gz` | 22 MB | Ensembl GRCh38 coding sequences | Ensembl |
-| `UP000005640_9606.fasta.gz` | 8 MB | UniProt human reference proteome | UniProt |
-| `HuSC_8_scores.tar.gz` | | precomputed HuSC scores for the human proteome (8 Å) | this pipeline |
+| `gnomad_variant_counts_hg38.json.gz` | 196 MB | gnomAD v2.1.1 coding SNVs per Ensembl transcript: `[protein change, allele count, allele number]` | Dryad (from [COSMIS](https://github.com/CapraLab/cosmis)) |
+| `gnomad_prob_AFdist_exp.tsv.gz` | 123 MB | per-transcript mutability, observed and expected variant counts, allele frequency lists (built by `husc.build_transcript_table`) | Dryad |
+| `Homo_sapiens.GRCh38.cds.all.fa.gz` | 22 MB | Ensembl GRCh38 coding sequences (the paper used the release current in February 2026) | [Ensembl](https://ftp.ensembl.org/pub/current_fasta/homo_sapiens/cds/) |
+| `UP000005640_9606.fasta.gz` | 8 MB | UniProt human reference proteome (February 2026) | [UniProt](https://www.uniprot.org/proteomes/UP000005640) |
+
+Results on Dryad (full list and column descriptions in the Dryad README):
+
+| file | contents |
+|---|---|
+| `HuSC_8_2026-10.tar.gz` | HuSC for 17,020 human proteins (8 Å), one table per protein in the format described under [Output](#output) |
+| `HuSC_5_2026-10.tar.gz`, `HuSC_11_2026-10.tar.gz`, `HuSC_14_2026-10.tar.gz` | the same at 5, 11 and 14 Å (radius comparison) |
+| other tables | inputs of the figure notebooks (built by the scripts in `analysis/`), and the fine-tuning splits, LoRA adapters and results |
 
 **Variant data provenance.** The variants file comes from [COSMIS](https://github.com/CapraLab/cosmis) (Li et al. 2022). It holds per-transcript variant counts from gnomAD v2.1.1 (141,456 individuals), lifted over to GRCh38. Sites without a PASS filter flag were removed with vcftools, and only single-nucleotide variants were kept.
 
