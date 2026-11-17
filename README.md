@@ -6,7 +6,7 @@ We use HuSC to fine-tune protein language models (PLMs), improving their ability
 
 > **Associated publication:** Bajracharya G. and Capra J.A. "Fine-tuning protein language models on human spatial constraint improves variant effect prediction by reducing wild-type sequence bias." *bioRxiv* (2026).
 
-**Just want the scores?** Precomputed HuSC scores for the human proteome are available on Zenodo (see [Data](#data)); you don't need to run the pipeline.
+**Just want the scores?** Precomputed HuSC scores for the human proteome are available on Dryad (see [Data](#data)); you don't need to run the pipeline.
 
 ---
 
@@ -35,7 +35,7 @@ pip install -e .
 
 This scores three proteins (TP53, BRCA1, PTEN) in about a minute, plus download time.
 
-**1. Download the data files** from Zenodo (see [Data](#data)) into `datafiles/`:
+**1. Download the data files** from Dryad (see [Data](#data)) into `datafiles/`:
 
 ```
 datafiles/
@@ -65,9 +65,9 @@ This writes one table per protein to `outputs/HuSC_8/` (e.g. `P04637_husc.tsv`);
 
 ## Data
 
-GitHub cannot store the large input files, so they are archived on Zenodo:
+GitHub cannot store the large input files, so they are archived on Dryad together with the precomputed scores:
 
-> **Zenodo:** https://doi.org/10.5281/zenodo.XXXXXXX *(to be added)*
+> **Dryad:** https://doi.org/10.5061/dryad.1vhhmgr88
 
 | file | size | contents | source |
 |---|---|---|---|
@@ -178,9 +178,11 @@ HuSC = Φ⁻¹(p)
 
 Because p is the probability of observing this little variation or less, negative HuSC means constraint. With N = 10,000 permutations, HuSC is bounded at about ±3.89.
 
+In the paper, residues under putative **human-specific constraint** are those with HuSC < −2.326 (one-sided p < 0.01) and ConSurf score > 3 (the ~1.5% least conserved residues across species). Residues in regions of low gnomAD coverage are excluded: those whose median allele number within ±15 codons is below half the transcript's median.
+
 ## Rebuilding the derived inputs
 
-You only need these to change the gene set or the gnomAD release; the published files are on Zenodo and in `resources/`.
+You only need these to change the gene set or the gnomAD release; the published files are on Dryad and in `resources/`.
 
 ```bash
 # per-transcript mutability, observed/expected counts and allele frequency lists (~2 min)
@@ -203,5 +205,5 @@ husc/
 └── utils/                     # sequence, structure and mutation-rate helpers
 resources/                     # small inputs shipped with the code
 inputs/                        # example and proteome input lists
-helper_scripts/, figures/, esm_finetuning/   # analyses and figures for the paper
+figures/, esm_finetuning/      # notebooks for the paper's figures and the ESM2 fine-tuning
 ```
