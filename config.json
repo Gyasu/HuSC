@@ -1,9 +1,13 @@
 {
     "ensembl_cds": "datafiles/Homo_sapiens.GRCh38.cds.all.fa.gz",
     "uniprot_pep": "datafiles/UP000005640_9606.fasta.gz",
-    "gnomad_variants": "datafiles/gnomad_variant_counts_hg38.json",
-    "uniprot_to_enst": "datafiles/uniprot_to_enst_mapping.json",
-    "enst_mp_counts": "datafiles/gnomad_prob_AFdist_exp.tsv",
-    "output_dir": "outputs/HuSC_14",
-    "pdb_dir": "../Ntranos_Rotation/ESM-SaProt/"
+    "gnomad_variants": "datafiles/gnomad_variant_counts_hg38.json.gz",
+    "uniprot_to_enst": "resources/uniprot_to_enst_mapping.json",
+    "enst_mp_counts": "datafiles/gnomad_prob_AFdist_exp.tsv.gz",
+    "cpg_maf": "resources/cpg_syn_maf.txt",
+    "cpg_scale": "resources/cpg_scale.json",
+    "output_dir": "outputs/HuSC_8",
+    "pdb_dir": "structures",
+    "radius": 8.0,
+    "seed": 0
 }

@@ -1,4 +1,0 @@
-Q9Y5Z9 AF-Q9Y5Z9-F1-model_v4.pdb
-Q9Y600 AF-Q9Y600-F1-model_v4.pdb
-Q9Y603 AF-Q9Y603-F1-model_v4.pdb
-Q9Y605 AF-Q9Y605-F1-model_v4.pdb

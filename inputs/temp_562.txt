@@ -1,8 +1,0 @@
-Q5FBB7 AF-Q5FBB7-F1-model_v4.pdb
-Q5FVE4 AF-Q5FVE4-F1-model_v4.pdb
-Q5FWF4 AF-Q5FWF4-F1-model_v4.pdb
-Q5FYB1 AF-Q5FYB1-F1-model_v4.pdb
-Q5GFL6 AF-Q5GFL6-F1-model_v4.pdb
-Q5H8A4 AF-Q5H8A4-F1-model_v4.pdb
-Q5H8C1 AF-Q5H8C1-F1-model_v4.pdb
-Q5H913 AF-Q5H913-F1-model_v4.pdb
